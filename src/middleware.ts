@@ -11,11 +11,15 @@ export async function middleware(request: NextRequest) {
   const session = token ? await verifyToken(token) : null;
 
   if (!session && !isPublic) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    // Hardcoded path — not user input, safe from SSRF/XSS
+    const loginUrl = new URL("/login", request.nextUrl.origin);
+    return NextResponse.redirect(loginUrl);
   }
 
   if (session && isPublic) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    // Hardcoded path — not user input, safe from SSRF/XSS
+    const dashboardUrl = new URL("/dashboard", request.nextUrl.origin);
+    return NextResponse.redirect(dashboardUrl);
   }
 
   return NextResponse.next();

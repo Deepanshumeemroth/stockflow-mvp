@@ -2,6 +2,8 @@
 
 A production-grade, multi-tenant inventory management SaaS built with Next.js 14 (App Router), Prisma ORM, PostgreSQL (Supabase), and Tailwind CSS.
 
+🚀 **Live Demo:** [https://stockflow-mvp-three.vercel.app](https://stockflow-mvp-three.vercel.app)
+
 ---
 
 ## Tech Stack
@@ -10,7 +12,7 @@ A production-grade, multi-tenant inventory management SaaS built with Next.js 14
 |---|---|
 | Frontend | Next.js 14 (App Router, Server Components), React, TypeScript, Tailwind CSS |
 | Backend | Next.js Server Actions |
-| Database | PostgreSQL via Supabase (transaction pooler, port 6543) |
+| Database | PostgreSQL via Supabase (Supavisor pooler, port 6543) |
 | ORM | Prisma |
 | Auth | JWT (via `jose`), HTTP-only cookies |
 | Deployment | Vercel (Hobby tier) |
@@ -27,7 +29,15 @@ A production-grade, multi-tenant inventory management SaaS built with Next.js 14
 
 ---
 
-## Getting Started
+## Try the Live App
+
+1. Visit [https://stockflow-mvp-three.vercel.app](https://stockflow-mvp-three.vercel.app)
+2. Click **Sign up** — enter your organization name, email, and password
+3. You'll land on the **Dashboard** — add products, set thresholds, and watch low-stock alerts appear
+
+---
+
+## Run Locally
 
 ### 1. Clone the repository
 
@@ -46,37 +56,32 @@ This also runs `prisma generate` automatically via the `postinstall` script.
 
 ### 3. Configure environment variables
 
-Copy `.env.example` to `.env.local`:
-
 ```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and fill in:
+Edit `.env.local`:
 
 ```env
-# PostgreSQL via Supabase transaction pooler (port 6543 is required for serverless)
-DATABASE_URL="postgresql://postgres:<password>@db.<project>.supabase.co:6543/postgres?connection_limit=1"
+# Supabase Supavisor pooler (port 6543) — required for serverless
+DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-1-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+
+# Supabase direct connection — used only for prisma db push / migrate
+DIRECT_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require"
 
 # Generate with: openssl rand -base64 32
 JWT_SECRET="your-super-secret-jwt-key"
 ```
 
-> **Why port 6543?** Supabase's transaction pooler (PgBouncer) on port 6543 is designed for serverless environments. It prevents connection exhaustion that would occur with direct connections (port 5432) from Vercel's ephemeral functions.
+> **Important:** Use the **Supavisor pooler hostname** (`aws-x-region.pooler.supabase.com`) for `DATABASE_URL`, not the direct DB hostname. The direct hostname resolves to IPv6 which is not supported by Vercel's serverless functions.
 
-### 4. Run database migrations
-
-```bash
-npx prisma migrate dev --name init
-```
-
-This creates all tables (`Organization`, `User`, `Product`) in your Supabase database.
-
-To push schema changes without migration history (e.g., on a fresh Supabase project):
+### 4. Push database schema
 
 ```bash
-npx prisma db push
+DATABASE_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require" npx prisma db push
 ```
+
+> Use the direct connection (port 5432) for `prisma db push` — the pooler doesn't support schema migrations.
 
 ### 5. Start the development server
 
@@ -88,16 +93,26 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## Deployment on Vercel
+## Deploy on Vercel
 
-1. Push the repository to GitHub.
-2. Import the project in [Vercel](https://vercel.com).
-3. Add the following environment variables in Vercel project settings:
-   - `DATABASE_URL` — your Supabase connection string (port 6543)
-   - `JWT_SECRET` — a strong random secret
-4. Deploy. The `postinstall` script (`prisma generate`) runs automatically during Vercel's build step.
+1. Push the repository to GitHub
+2. Import the project at [vercel.com](https://vercel.com)
+3. Add these environment variables in Vercel project settings:
 
-> **Note:** Run `npx prisma migrate deploy` (or `npx prisma db push`) against your production database before or after the first deploy to apply the schema.
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql://postgres.<ref>:<password>@aws-x-region.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require` |
+| `DIRECT_URL` | `postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres?sslmode=require` |
+| `JWT_SECRET` | output of `openssl rand -base64 32` |
+
+> **Critical:** Type `&` characters manually in Vercel's env var UI — do not paste from a browser page as it may encode `&` as `&amp;`.
+
+4. Deploy — the `postinstall` script (`prisma generate`) runs automatically during Vercel's build step.
+5. Run schema migration against your production DB before first use:
+
+```bash
+DATABASE_URL="postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres?sslmode=require" npx prisma db push
+```
 
 ---
 
@@ -113,6 +128,7 @@ src/
 │   │   │   ├── new/
 │   │   │   └── [id]/edit/
 │   │   └── settings/
+│   ├── api/health/   # DB connectivity diagnostic endpoint
 │   ├── login/
 │   ├── signup/
 │   ├── layout.tsx
@@ -130,17 +146,15 @@ prisma/
 
 ## Multi-Tenancy Model
 
-Row-level isolation is enforced at the application layer. Every database query that reads or mutates tenant data includes a `WHERE organizationId = session.organizationId` clause. The Prisma schema enforces this with a `@@unique([sku, organizationId])` constraint on products.
+Row-level isolation is enforced at the application layer. Every database query includes a `WHERE organizationId = session.organizationId` clause. The Prisma schema enforces uniqueness with `@@unique([sku, organizationId])` on products.
 
 ---
 
 ## Future Extension Points (AI / LLM)
 
-The architecture is clean and ready for AI feature additions:
-
-- **Demand forecasting**: Add a `/api/ai/forecast` route that reads product history and calls an LLM or ML endpoint.
-- **Reorder suggestions**: A server action that queries low-stock items and generates purchase order drafts via an AI API.
-- **Natural language search**: Replace or augment the text filter with an embedding-based semantic search using pgvector (available on Supabase).
+- **Demand forecasting** — Add a `/api/ai/forecast` route that reads product history and calls an LLM or ML endpoint.
+- **Reorder suggestions** — A server action that queries low-stock items and generates purchase order drafts via an AI API.
+- **Natural language search** — Replace or augment the text filter with embedding-based semantic search using pgvector (available on Supabase).
 
 To add an AI provider, install the SDK (e.g., `@aws-sdk/client-bedrock-runtime` for Amazon Bedrock) and add the API key to `.env.local` and Vercel environment variables.
 
@@ -150,5 +164,6 @@ To add an AI provider, install the SDK (e.g., `@aws-sdk/client-bedrock-runtime` 
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | ✅ | Supabase PostgreSQL connection string (port 6543) |
+| `DATABASE_URL` | ✅ | Supabase Supavisor pooler connection string (port 6543) |
+| `DIRECT_URL` | ✅ | Supabase direct connection string (port 5432) for migrations |
 | `JWT_SECRET` | ✅ | Secret key for signing JWT session tokens |
