@@ -10,6 +10,14 @@ export async function GET() {
     : url;
 
   let dbStatus = "untested";
+  let resolvedIP = "unknown";
+  try {
+    const dns = require('dns').promises;
+    const result = await dns.lookup('db.qxegkbcbayvkopkxompl.supabase.co', { family: 4 });
+    resolvedIP = result.address;
+  } catch (e: unknown) {
+    resolvedIP = e instanceof Error ? e.message : "dns failed";
+  }
   try {
     await prisma.$queryRaw`SELECT 1`;
     dbStatus = "connected";
@@ -25,6 +33,7 @@ export async function GET() {
     DIRECT_URL_SET: !!process.env.DIRECT_URL,
     JWT_SECRET_SET: !!process.env.JWT_SECRET,
     NODE_ENV: process.env.NODE_ENV,
+    resolvedIP,
     dbStatus,
   });
 }
